@@ -208,3 +208,154 @@ func TestDiffActualExample(t *testing.T) {
 	}
 
 }
+
+func TestDiffActualExample2(t *testing.T) {
+	configObjStr := `
+{
+  "apiVersion": "apps/v1beta2",
+  "kind": "Deployment",
+  "metadata": {
+    "labels": {
+      "applications.argoproj.io/app-name": "jesse-test"
+    },
+    "name": "application-controller"
+  },
+  "spec": {
+    "selector": {
+      "matchLabels": {
+        "app": "application-controller"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "application-controller",
+          "applications.argoproj.io/app-name": "jesse-test"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "command": [
+              "/argocd-application-controller",
+              "--repo-server",
+              "argocd-repo-server:8081"
+            ],
+            "image": "argoproj/argocd-application-controller:v0.4.0",
+            "imagePullPolicy": "Always",
+            "name": "application-controller"
+          }
+        ],
+        "serviceAccountName": "application-controller"
+      }
+    }
+  }
+}`
+	liveObjStr := `
+{
+  "apiVersion": "apps/v1beta2",
+  "kind": "Deployment",
+  "metadata": {
+    "annotations": {
+      "deployment.kubernetes.io/revision": "5",
+      "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1beta2\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"applications.argoproj.io/app-name\":\"jesse-test\"},\"name\":\"application-controller\",\"namespace\":\"jesse-test\"},\"spec\":{\"selector\":{\"matchLabels\":{\"app\":\"application-controller\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"application-controller\",\"applications.argoproj.io/app-name\":\"jesse-test\"}},\"spec\":{\"containers\":[{\"command\":[\"/argocd-application-controller\",\"--repo-server\",\"argocd-repo-server:8081\"],\"image\":\"argoproj/argocd-application-controller:v0.4.0\",\"name\":\"application-controller\"}],\"serviceAccountName\":\"application-controller\"}}}}\n"
+    },
+    "creationTimestamp": "2018-05-01T00:10:46Z",
+    "generation": 12,
+    "labels": {
+      "app": "application-controller",
+      "applications.argoproj.io/app-name": "jesse-test"
+    },
+    "name": "application-controller",
+    "namespace": "jesse-test",
+    "resourceVersion": "11098215",
+    "selfLink": "/apis/apps/v1beta2/namespaces/jesse-test/deployments/application-controller",
+    "uid": "189330dc-4cd4-11e8-a6c3-06c0e6e3f55c"
+  },
+  "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 0,
+    "revisionHistoryLimit": 10,
+    "selector": {
+      "matchLabels": {
+        "app": "application-controller"
+      }
+    },
+    "strategy": {
+      "rollingUpdate": {
+        "maxSurge": "25%",
+        "maxUnavailable": "25%"
+      },
+      "type": "RollingUpdate"
+    },
+    "template": {
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "application-controller",
+          "applications.argoproj.io/app-name": "jesse-test"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "command": [
+              "/argocd-application-controller",
+              "--repo-server",
+              "argocd-repo-server:8081"
+            ],
+            "image": "argoproj/argocd-application-controller:v0.4.0",
+            "imagePullPolicy": "Always",
+            "name": "application-controller",
+            "resources": {},
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File"
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "restartPolicy": "Always",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "serviceAccount": "application-controller",
+        "serviceAccountName": "application-controller",
+        "terminationGracePeriodSeconds": 30
+      }
+    }
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2018-05-15T07:47:08Z",
+        "lastUpdateTime": "2018-05-15T07:47:08Z",
+        "message": "Deployment has minimum availability.",
+        "reason": "MinimumReplicasAvailable",
+        "status": "True",
+        "type": "Available"
+      },
+      {
+        "lastTransitionTime": "2018-05-01T00:10:46Z",
+        "lastUpdateTime": "2018-05-17T08:47:56Z",
+        "message": "ReplicaSet \"application-controller-648ff67448\" has successfully progressed.",
+        "reason": "NewReplicaSetAvailable",
+        "status": "True",
+        "type": "Progressing"
+      }
+    ],
+    "observedGeneration": 12
+  }
+}`
+	var configUn, liveUn unstructured.Unstructured
+	err := json.Unmarshal([]byte(configObjStr), &configUn.Object)
+	assert.Nil(t, err)
+	err = json.Unmarshal([]byte(liveObjStr), &liveUn.Object)
+	assert.Nil(t, err)
+	dr := Diff(&configUn, &liveUn)
+	assert.False(t, dr.Diff.Modified())
+	assert.False(t, dr.Modified)
+	ascii, err := dr.ASCIIFormat(&configUn, formatOpts)
+	assert.Nil(t, err)
+	if ascii != "" {
+		log.Println(ascii)
+	}
+
+}
