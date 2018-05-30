@@ -50,7 +50,7 @@ func request_ClusterService_Create_0(ctx context.Context, marshaler runtime.Mars
 	var protoReq v1alpha1.Cluster
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -90,7 +90,7 @@ func request_ClusterService_UpdateREST_0(ctx context.Context, marshaler runtime.
 	var protoReq ClusterUpdateRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq.Cluster); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq.Cluster); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 

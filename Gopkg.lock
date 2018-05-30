@@ -173,7 +173,6 @@
   revision = "23def4e6c14b4da8ac2ed8007337bc5eb5007998"
 
 [[projects]]
-  branch = "master"
   name = "github.com/golang/protobuf"
   packages = [
     "jsonpb",
@@ -186,7 +185,8 @@
     "ptypes/struct",
     "ptypes/timestamp"
   ]
-  revision = "e09c5db296004fbe3f74490e84dcd62c3c5ddb1b"
+  revision = "b4deda0973fb4c70b50d226b1af49f3da59f5265"
+  version = "v1.1.0"
 
 [[projects]]
   branch = "master"
@@ -229,7 +229,6 @@
   revision = "2bcd89a1743fd4b373f7370ce8ddc14dfbd18229"
 
 [[projects]]
-  branch = "master"
   name = "github.com/grpc-ecosystem/go-grpc-middleware"
   packages = [
     ".",
@@ -241,17 +240,19 @@
     "tags/logrus",
     "util/metautils"
   ]
-  revision = "bc372cc64f55abd91995ba3f219b380ffbc59e9d"
+  revision = "c250d6563d4d4c20252cd865923440e829844f4e"
+  version = "v1.0.0"
 
 [[projects]]
+  branch = "raw-url"
   name = "github.com/grpc-ecosystem/grpc-gateway"
   packages = [
     "runtime",
     "runtime/internal",
     "utilities"
   ]
-  revision = "07f5e79768022f9a3265235f0db4ac8c3f675fec"
-  version = "v1.3.1"
+  revision = "01f081d795e82599e0b214b4ee497112ae3b6a44"
+  source = "https://github.com/jessesuen/grpc-gateway.git"
 
 [[projects]]
   branch = "master"
@@ -747,6 +748,8 @@
     "discovery/fake",
     "dynamic",
     "dynamic/fake",
+    "informers/core/v1",
+    "informers/internalinterfaces",
     "kubernetes",
     "kubernetes/fake",
     "kubernetes/scheme",
@@ -806,6 +809,7 @@
     "kubernetes/typed/storage/v1alpha1/fake",
     "kubernetes/typed/storage/v1beta1",
     "kubernetes/typed/storage/v1beta1/fake",
+    "listers/core/v1",
     "pkg/version",
     "plugin/pkg/client/auth/gcp",
     "plugin/pkg/client/auth/oidc",
@@ -876,6 +880,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "736e8116bcf49bf0889c2caf8e832a78a43fd5af65c5d10c86a443993de63d3c"
+  inputs-digest = "4a437743fda046b90f4cd0e7a814cdfb71ca5cbf54f76dda6d304976c9407e0b"
   solver-name = "gps-cdcl"
   solver-version = 1
