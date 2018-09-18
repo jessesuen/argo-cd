@@ -1,0 +1,22 @@
+# working
+# - command:
+#   - /argocd-server
+#   - --staticassets
+#   - /shared/app
+#   - --repo-server
+#   - argocd-repo-server:8081
+#   - --insecure
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: argocd-server-ingress
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+spec:
+  rules:
+  - http:
+      paths:
+      - backend:
+          serviceName: argocd-server
+          servicePort: https

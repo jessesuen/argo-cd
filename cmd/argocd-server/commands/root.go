@@ -30,6 +30,8 @@ func NewCommand() *cobra.Command {
 		staticAssetsDir        string
 		repoServerAddress      string
 		disableAuth            bool
+		disableSSLRedirect     bool
+		grpcPort               int
 		tlsConfigCustomizerSrc func() (tls.ConfigCustomizer, error)
 	)
 	var command = &cobra.Command{
@@ -67,7 +69,9 @@ func NewCommand() *cobra.Command {
 				AppClientset:        appclientset,
 				RepoClientset:       repoclientset,
 				DisableAuth:         disableAuth,
+				DisableSSLRedirect:  disableSSLRedirect,
 				TLSConfigCustomizer: tlsConfigCustomizer,
+				GRPCPort:            grpcPort,
 			}
 
 			stats.RegisterStackDumper()
@@ -91,6 +95,8 @@ func NewCommand() *cobra.Command {
 	command.Flags().IntVar(&glogLevel, "gloglevel", 0, "Set the glog logging level")
 	command.Flags().StringVar(&repoServerAddress, "repo-server", "localhost:8081", "Repo server address.")
 	command.Flags().BoolVar(&disableAuth, "disable-auth", false, "Disable client authentication")
+	command.Flags().BoolVar(&disableSSLRedirect, "disable-ssl-redirect", false, "Disable SSL redirect")
+	command.Flags().IntVar(&grpcPort, "grpc-port", 0, "gRPC port")
 	command.AddCommand(cli.NewVersionCmd(cliName))
 	tlsConfigCustomizerSrc = tls.AddTLSFlagsToCmd(command)
 	return command

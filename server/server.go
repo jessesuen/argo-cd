@@ -122,6 +122,8 @@ type ArgoCDServerOpts struct {
 	Insecure            bool
 	Namespace           string
 	StaticAssetsDir     string
+	DisableSSLRedirect  bool
+	GRPCPort            int
 	KubeClientset       kubernetes.Interface
 	AppClientset        appclientset.Interface
 	RepoClientset       reposerver.Clientset
@@ -205,7 +207,11 @@ func (a *ArgoCDServer) Run(ctx context.Context, port int) {
 	var httpS *http.Server
 	var httpsS *http.Server
 	if a.useTLS() {
-		httpS = newRedirectServer(port)
+		if a.DisableSSLRedirect {
+			httpS = a.newHTTPServer(ctx, port)
+		} else {
+			httpS = newRedirectServer(port)
+		}
 		httpsS = a.newHTTPServer(ctx, port)
 	} else {
 		httpS = a.newHTTPServer(ctx, port)
@@ -232,7 +238,13 @@ func (a *ArgoCDServer) Run(ctx context.Context, port int) {
 	var httpsL net.Listener
 	if !a.useTLS() {
 		httpL = tcpm.Match(cmux.HTTP1Fast())
-		grpcL = tcpm.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
+		if a.GRPCPort != 0 {
+			var err error
+			grpcL, err = net.Listen("tcp", fmt.Sprintf(":%d", a.GRPCPort))
+			errors.CheckError(err)
+		} else {
+			grpcL = tcpm.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
+		}
 	} else {
 		// We first match on HTTP 1.1 methods.
 		httpL = tcpm.Match(cmux.HTTP1Fast())
@@ -247,7 +259,14 @@ func (a *ArgoCDServer) Run(ctx context.Context, port int) {
 		// Now, we build another mux recursively to match HTTPS and gRPC.
 		tlsm = cmux.New(tlsl)
 		httpsL = tlsm.Match(cmux.HTTP1Fast())
-		grpcL = tlsm.Match(cmux.Any())
+		if a.GRPCPort != 0 {
+			log.Infof("gRPC port listening on %d", a.GRPCPort)
+			tcpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", a.GRPCPort))
+			errors.CheckError(err)
+			grpcL = tls.NewListener(tcpListener, &tlsConfig)
+		} else {
+			grpcL = tlsm.Match(cmux.Any())
+		}
 	}
 	metricsServ := metrics.NewMetricsServer(8082, a.appLister)
 
@@ -365,8 +384,8 @@ func (a *ArgoCDServer) useTLS() bool {
 func (a *ArgoCDServer) newGRPCServer() *grpc.Server {
 	var sOpts []grpc.ServerOption
 	sensitiveMethods := map[string]bool{
-		"/session.SessionService/Create":         true,
-		"/account.AccountService/UpdatePassword": true,
+		//"/session.SessionService/Create":         true,
+		//"/account.AccountService/UpdatePassword": true,
 	}
 	// NOTE: notice we do not configure the gRPC server here with TLS (e.g. grpc.Creds(creds))
 	// This is because TLS handshaking occurs in cmux handling
