@@ -364,12 +364,8 @@ func NewClusterConfig() *cobra.Command {
 			output := args[1]
 			conf, err := clientConfig.ClientConfig()
 			errors.CheckError(err)
-			namespace, wasSpecified, err := clientConfig.Namespace()
+			namespace, _, err := clientConfig.Namespace()
 			errors.CheckError(err)
-			if !(wasSpecified) {
-				namespace = "argocd"
-			}
-
 			kubeclientset, err := kubernetes.NewForConfig(conf)
 			errors.CheckError(err)
 

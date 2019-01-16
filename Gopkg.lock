@@ -1090,7 +1090,7 @@
 
 [[projects]]
   branch = "release-1.12"
-  digest = "1:ed04c5203ecbf6358fb6a774b0ecd40ea992d6dcc42adc1d3b7cf9eceb66b6c8"
+  digest = "1:3e3e9df293bd6f9fd64effc9fa1f0edcd97e6c74145cd9ab05d35719004dc41f"
   name = "k8s.io/api"
   packages = [
     "admission/v1beta1",
@@ -1128,7 +1128,7 @@
     "storage/v1beta1",
   ]
   pruneopts = ""
-  revision = "475331a8afff5587f47d0470a93f79c60c573c03"
+  revision = "6db15a15d2d3874a6c3ddb2140ac9f3bc7058428"
 
 [[projects]]
   branch = "release-1.12"
@@ -1210,7 +1210,7 @@
 
 [[projects]]
   branch = "release-9.0"
-  digest = "1:77bf3d9f18ec82e08ac6c4c7e2d9d1a2ef8d16b25d3ff72fcefcf9256d751573"
+  digest = "1:203ee3d901467a9bfa00c1859438f168288431405b7a30c7c6f14f8391cafa6f"
   name = "k8s.io/client-go"
   packages = [
     "discovery",
@@ -1316,7 +1316,7 @@
     "util/workqueue",
   ]
   pruneopts = ""
-  revision = "13596e875accbd333e0b5bd5fd9462185acd9958"
+  revision = "701b913670036511e3d752318272c97f1a2a2edd"
 
 [[projects]]
   branch = "release-1.12"

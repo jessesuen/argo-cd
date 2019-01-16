@@ -2,11 +2,16 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"time"
 
+	"github.com/argoproj/argo-cd/errors"
+	"github.com/ghodss/yaml"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -58,4 +63,22 @@ func portIsOpen(addr string) bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+func UnmarshalYAMLFile(path string) *unstructured.Unstructured {
+	data, err := ioutil.ReadFile(path)
+	errors.CheckError(err)
+	var un unstructured.Unstructured
+	err = yaml.Unmarshal(data, &un.Object)
+	errors.CheckError(err)
+	return &un
+}
+
+func UnmarshalJSONFile(path string) *unstructured.Unstructured {
+	data, err := ioutil.ReadFile(path)
+	errors.CheckError(err)
+	var un unstructured.Unstructured
+	err = json.Unmarshal(data, &un.Object)
+	errors.CheckError(err)
+	return &un
 }

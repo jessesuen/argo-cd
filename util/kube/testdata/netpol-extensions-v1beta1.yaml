@@ -1,0 +1,13 @@
+apiVersion: extensions/v1beta1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress
+spec:
+  egress:
+  - to:
+    - podSelector: {}
+    - ipBlock:
+        cidr: 0.0.0.0/0
+  podSelector: {}
+  policyTypes:
+  - Egress

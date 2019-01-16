@@ -271,7 +271,6 @@ func runKubectl(kubeconfigPath string, namespace string, args []string, manifest
 
 // ConvertToVersion converts an unstructured object into the specified group/version
 func (k KubectlCmd) ConvertToVersion(obj *unstructured.Unstructured, group, version string) (*unstructured.Unstructured, error) {
-	return k.ConvertToVersionOrig(obj, group, version)
 	gvk := obj.GroupVersionKind()
 	if gvk.Group == group && gvk.Version == version {
 		return obj.DeepCopy(), nil
@@ -281,86 +280,34 @@ func (k KubectlCmd) ConvertToVersion(obj *unstructured.Unstructured, group, vers
 	// 	Version: version,
 	// 	Kind:    obj.GetKind(),
 	// }
-	internalEncoder := scheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
-	encoder := unstructured.JSONFallbackEncoder{Encoder: internalEncoder}
-
-	versionedObj, err := scheme.Scheme.New(obj.GroupVersionKind())
-	if err != nil {
-		return nil, err
-	}
-	log.Info(obj.GroupVersionKind())
-	log.Info(versionedObj.GetObjectKind())
-
-	targetVersions := []schema.GroupVersion{}
-	var converted runtime.Object
-
-	// objects that are not part of api.Scheme must be converted to JSON
-	// TODO: convert to map[string]interface{}, attach to runtime.Unknown?
-	if _, _, err := scheme.Scheme.ObjectKinds(obj); runtime.IsNotRegisteredError(err) {
-		log.Infof("is not registered: %s", obj.GroupVersionKind())
-		// TODO: ideally this would encode to version, but we don't expose multiple codecs here.
-		data, err := runtime.Encode(encoder, obj)
-		if err != nil {
-			return nil, err
-		}
-		// TODO: Set ContentEncoding and ContentType.
-		converted = &runtime.Unknown{Raw: data}
-	} else {
-		log.Infof("registered: %s", obj.GroupVersionKind())
-		targetVersions = append(targetVersions, schema.GroupVersion{Group: group, Version: version})
-		converted, err = tryConvert(scheme.Scheme, obj, targetVersions...)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Jesse
-	convertedObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(converted)
-	if err != nil {
-		return nil, err
-	}
-	newObj := unstructured.Unstructured{Object: convertedObj}
-	return &newObj, nil
-
-	// converted, err := scheme.Scheme.ConvertToVersion(versionedObj, schema.GroupVersion{Group: group, Version: version})
-	// if converted == nil {
-	// 	bytes, _ := json.Marshal(obj)
-	// 	log.Info(string(bytes))
-	// 	//obj.GroupVersionKind
-	// 	return nil, fmt.Errorf("failed to convert %s, %s to %s/%s: %v", obj.GroupVersionKind(), obj.GetName(), group, version, err)
-	// }
-	// convertedObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(converted)
+	// versionedObj, err := scheme.Scheme.New(targetGVK)
 	// if err != nil {
 	// 	return nil, err
 	// }
-	// newObj := unstructured.Unstructured{Object: convertedObj}
-	// // ToUnstructured does not populate type metadata. Need to set it manually
-	// //newObj.SetGroupVersionKind(targetGVK)
-	// //newObj.SetNamespace(obj.GetNamespace())
-	// return &newObj, nil
-}
 
-// ConvertToVersion converts an unstructured object into the specified group/version
-func (k KubectlCmd) ConvertToVersionOrig(obj *unstructured.Unstructured, group, version string) (*unstructured.Unstructured, error) {
-	gvk := obj.GroupVersionKind()
-	if gvk.Group == group && gvk.Version == version {
-		return obj.DeepCopy(), nil
-	}
-	targetVersion := schema.GroupVersion{Group: group, Version: version}
-	item, err := scheme.Scheme.New(obj.GroupVersionKind())
-	if err != nil {
-		return nil, err
-	}
-	//unmarshalledObj := reflect.New(reflect.TypeOf(item).Elem()).Interface().(runtime.Object)
-	//versionedObj := reflect.New(reflect.TypeOf(item).Elem()).Interface()
-	//converter := runtime.ObjectConvertor(scheme.Scheme)
-	//converter := runtime.ObjectConvertor(legacyscheme.Scheme)
-	//converted, err := converter.ConvertToVersion(versionedObj, schema.GroupVersion{Group: group, Version: version})
-	//converted, err := converter.ConvertToVersion(versionedObj, runtime.APIVersionInternal)
-	converted, err := scheme.Scheme.ConvertToVersion(item, targetVersion)
+	// targetVersions := []schema.GroupVersion{}
+	// // objects that are not part of api.Scheme must be converted to JSON
+	// // TODO: convert to map[string]interface{}, attach to runtime.Unknown?
+	// // if _, _, err := scheme.Scheme.ObjectKinds(runtime.Object{obj}); runtime.IsNotRegisteredError(err) {
+	// // 	// TODO: ideally this would encode to version, but we don't expose multiple codecs here.
+	// // 	data, err := runtime.Encode(encoder, runtime.Object{obj})
+	// // 	if err != nil {
+	// // 		return nil, err
+	// // 	}
+	// // 	// TODO: Set ContentEncoding and ContentType.
+	// // 	objects = append(objects, &runtime.Unknown{Raw: data})
+	// // }
+	// targetVersions = append(targetVersions, schema.GroupVersion{Group: group, Version: version})
+	// converted, err := tryConvert(scheme.Scheme, runtime.Object{obj}, targetVersions...)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	converted, err := scheme.Scheme.ConvertToVersion(obj, schema.GroupVersion{Group: group, Version: version})
 	if converted == nil {
 		bytes, _ := json.Marshal(obj)
 		log.Info(string(bytes))
+		//obj.GroupVersionKind
 		return nil, fmt.Errorf("failed to convert %s, %s to %s/%s: %v", obj.GroupVersionKind(), obj.GetName(), group, version, err)
 	}
 	convertedObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(converted)
@@ -374,20 +321,104 @@ func (k KubectlCmd) ConvertToVersionOrig(obj *unstructured.Unstructured, group, 
 	return &newObj, nil
 }
 
-// tryConvert attempts to convert the given object to the provided versions in order. This function assumes
-// the object is in internal version.
-func tryConvert(converter runtime.ObjectConvertor, object runtime.Object, versions ...schema.GroupVersion) (runtime.Object, error) {
-	var last error
-	for _, version := range versions {
-		if version.Empty() {
-			return object, nil
-		}
-		obj, err := converter.ConvertToVersion(object, version)
-		if err != nil {
-			last = err
-			continue
-		}
-		return obj, nil
-	}
-	return nil, last
-}
+// // asVersionedObject converts a list of infos into a single object - either a List containing
+// // the objects as children, or if only a single Object is present, as that object. The provided
+// // version will be preferred as the conversion target, but the Object's mapping version will be
+// // used if that version is not present.
+// func asVersionedObject(infos []*resource.Info, forceList bool, specifiedOutputVersion schema.GroupVersion, encoder runtime.Encoder) (runtime.Object, error) {
+// 	objects, err := asVersionedObjects(infos, specifiedOutputVersion, encoder)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	var object runtime.Object
+// 	if len(objects) == 1 && !forceList {
+// 		object = objects[0]
+// 	} else {
+// 		object = &api.List{Items: objects}
+// 		targetVersions := []schema.GroupVersion{}
+// 		if !specifiedOutputVersion.Empty() {
+// 			targetVersions = append(targetVersions, specifiedOutputVersion)
+// 		}
+// 		targetVersions = append(targetVersions, schema.GroupVersion{Group: "", Version: "v1"})
+
+// 		converted, err := tryConvert(scheme.Scheme, object, targetVersions...)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		object = converted
+// 	}
+
+// 	actualVersion := object.GetObjectKind().GroupVersionKind()
+// 	if actualVersion.Version != specifiedOutputVersion.Version {
+// 		defaultVersionInfo := ""
+// 		if len(actualVersion.Version) > 0 {
+// 			defaultVersionInfo = fmt.Sprintf("Defaulting to %q", actualVersion.Version)
+// 		}
+// 		klog.V(1).Infof("info: the output version specified is invalid. %s\n", defaultVersionInfo)
+// 	}
+// 	return object, nil
+// }
+
+// // asVersionedObjects converts a list of infos into versioned objects. The provided
+// // version will be preferred as the conversion target, but the Object's mapping version will be
+// // used if that version is not present.
+// func asVersionedObjects(infos []*resource.Info, specifiedOutputVersion schema.GroupVersion, encoder runtime.Encoder) ([]runtime.Object, error) {
+// 	objects := []runtime.Object{}
+// 	for _, info := range infos {
+// 		if info.Object == nil {
+// 			continue
+// 		}
+
+// 		targetVersions := []schema.GroupVersion{}
+// 		// objects that are not part of api.Scheme must be converted to JSON
+// 		// TODO: convert to map[string]interface{}, attach to runtime.Unknown?
+// 		if !specifiedOutputVersion.Empty() {
+// 			if _, _, err := scheme.Scheme.ObjectKinds(info.Object); runtime.IsNotRegisteredError(err) {
+// 				// TODO: ideally this would encode to version, but we don't expose multiple codecs here.
+// 				data, err := runtime.Encode(encoder, info.Object)
+// 				if err != nil {
+// 					return nil, err
+// 				}
+// 				// TODO: Set ContentEncoding and ContentType.
+// 				objects = append(objects, &runtime.Unknown{Raw: data})
+// 				continue
+// 			}
+// 			targetVersions = append(targetVersions, specifiedOutputVersion)
+// 		} else {
+// 			gvks, _, err := scheme.Scheme.ObjectKinds(info.Object)
+// 			if err == nil {
+// 				for _, gvk := range gvks {
+// 					for _, version := range scheme.Scheme.PrioritizedVersionsForGroup(gvk.Group) {
+// 						targetVersions = append(targetVersions, version)
+// 					}
+// 				}
+// 			}
+// 		}
+
+// 		converted, err := tryConvert(scheme.Scheme, info.Object, targetVersions...)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		objects = append(objects, converted)
+// 	}
+// 	return objects, nil
+// }
+
+// // tryConvert attempts to convert the given object to the provided versions in order. This function assumes
+// // the object is in internal version.
+// func tryConvert(converter runtime.ObjectConvertor, object runtime.Object, versions ...schema.GroupVersion) (runtime.Object, error) {
+// 	var last error
+// 	for _, version := range versions {
+// 		if version.Empty() {
+// 			return object, nil
+// 		}
+// 		obj, err := converter.ConvertToVersion(object, version)
+// 		if err != nil {
+// 			last = err
+// 			continue
+// 		}
+// 		return obj, nil
+// 	}
+// 	return nil, last
+// }

@@ -199,7 +199,8 @@ func (c *clusterInfo) getManagedLiveObjs(a *appv1.Application, targetObjs []*uns
 	lock := &sync.Mutex{}
 	err := util.RunAllAsync(len(targetObjs), func(i int) error {
 		targetObj := targetObjs[i]
-		key := GetTargetObjKey(a, targetObj, c.isNamespaced(targetObj.GroupVersionKind()))
+		targetGVK := targetObj.GroupVersionKind()
+		key := GetTargetObjKey(a, targetObj, c.isNamespaced(targetGVK))
 		lock.Lock()
 		managedObj := managedObjs[key]
 		lock.Unlock()
@@ -210,8 +211,8 @@ func (c *clusterInfo) getManagedLiveObjs(a *appv1.Application, targetObjs []*uns
 					managedObj = existingObj.resource
 				} else {
 					var err error
-					managedObj, err = c.kubectl.GetResource(c.cluster.RESTConfig(), targetObj.GroupVersionKind(), existingObj.ref.Name, existingObj.ref.Namespace)
-					err = c.handleError(targetObj.GroupVersionKind(), existingObj.ref.Namespace, existingObj.ref.Name, err)
+					managedObj, err = c.kubectl.GetResource(c.cluster.RESTConfig(), targetGVK, existingObj.ref.Name, existingObj.ref.Namespace)
+					err = c.handleError(targetGVK, existingObj.ref.Namespace, existingObj.ref.Name, err)
 					if err != nil && !errors.IsNotFound(err) {
 						return err
 					}
@@ -220,7 +221,7 @@ func (c *clusterInfo) getManagedLiveObjs(a *appv1.Application, targetObjs []*uns
 		}
 
 		if managedObj != nil {
-			managedObj, err := c.kubectl.ConvertToVersion(managedObj, targetObj.GroupVersionKind().Group, targetObj.GroupVersionKind().Version)
+			managedObj, err := c.kubectl.ConvertToVersion(managedObj, targetGVK.Group, targetGVK.Version)
 			if err != nil {
 				return err
 			}

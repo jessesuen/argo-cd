@@ -1,0 +1,223 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "annotations": {
+      "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2019-01-15T20:09:29Z",
+    "generation": 1,
+    "labels": {
+      "app": "wordpress-wordpress",
+      "app.kubernetes.io/instance": "wordpress",
+      "chart": "wordpress-5.1.2",
+      "heritage": "Tiller",
+      "release": "wordpress"
+    },
+    "name": "wordpress-wordpress",
+    "namespace": "default",
+    "resourceVersion": "118299",
+    "selfLink": "/apis/apps/v1/namespaces/default/deployments/wordpress-wordpress",
+    "uid": "7735febb-1901-11e9-afc1-a6a55e696d25"
+  },
+  "spec": {
+    "progressDeadlineSeconds": 2147483647,
+    "replicas": 1,
+    "revisionHistoryLimit": 2147483647,
+    "selector": {
+      "matchLabels": {
+        "app": "wordpress-wordpress",
+        "release": "wordpress"
+      }
+    },
+    "strategy": {
+      "rollingUpdate": {
+        "maxSurge": 1,
+        "maxUnavailable": 1
+      },
+      "type": "RollingUpdate"
+    },
+    "template": {
+      "metadata": {
+        "creationTimestamp": null,
+        "labels": {
+          "app": "wordpress-wordpress",
+          "chart": "wordpress-5.1.2",
+          "release": "wordpress"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "ALLOW_EMPTY_PASSWORD",
+                "value": "yes"
+              },
+              {
+                "name": "MARIADB_HOST",
+                "value": "wordpress-mariadb"
+              },
+              {
+                "name": "MARIADB_PORT_NUMBER",
+                "value": "3306"
+              },
+              {
+                "name": "WORDPRESS_DATABASE_NAME",
+                "value": "bitnami_wordpress"
+              },
+              {
+                "name": "WORDPRESS_DATABASE_USER",
+                "value": "bn_wordpress"
+              },
+              {
+                "name": "WORDPRESS_DATABASE_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "mariadb-password",
+                    "name": "wordpress-mariadb"
+                  }
+                }
+              },
+              {
+                "name": "WORDPRESS_USERNAME",
+                "value": "user"
+              },
+              {
+                "name": "WORDPRESS_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "wordpress-password",
+                    "name": "wordpress-wordpress"
+                  }
+                }
+              },
+              {
+                "name": "WORDPRESS_EMAIL",
+                "value": "user@example.com"
+              },
+              {
+                "name": "WORDPRESS_FIRST_NAME",
+                "value": "FirstName"
+              },
+              {
+                "name": "WORDPRESS_LAST_NAME",
+                "value": "LastName"
+              },
+              {
+                "name": "WORDPRESS_BLOG_NAME",
+                "value": "User's Blog!"
+              },
+              {
+                "name": "WORDPRESS_TABLE_PREFIX",
+                "value": "wp_"
+              }
+            ],
+            "image": "docker.io/bitnami/wordpress:5.0.3",
+            "imagePullPolicy": "IfNotPresent",
+            "livenessProbe": {
+              "failureThreshold": 6,
+              "httpGet": {
+                "path": "/wp-login.php",
+                "port": "http",
+                "scheme": "HTTP"
+              },
+              "initialDelaySeconds": 120,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 5
+            },
+            "name": "wordpress",
+            "ports": [
+              {
+                "containerPort": 80,
+                "name": "http",
+                "protocol": "TCP"
+              },
+              {
+                "containerPort": 443,
+                "name": "https",
+                "protocol": "TCP"
+              }
+            ],
+            "readinessProbe": {
+              "failureThreshold": 6,
+              "httpGet": {
+                "path": "/wp-login.php",
+                "port": "http",
+                "scheme": "HTTP"
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "timeoutSeconds": 5
+            },
+            "resources": {
+              "requests": {
+                "cpu": "300m",
+                "memory": "512Mi"
+              }
+            },
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File",
+            "volumeMounts": [
+              {
+                "mountPath": "/bitnami/apache",
+                "name": "wordpress-data",
+                "subPath": "apache"
+              },
+              {
+                "mountPath": "/bitnami/wordpress",
+                "name": "wordpress-data",
+                "subPath": "wordpress"
+              },
+              {
+                "mountPath": "/bitnami/php",
+                "name": "wordpress-data",
+                "subPath": "php"
+              }
+            ]
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "hostAliases": [
+          {
+            "hostnames": [
+              "status.localhost"
+            ],
+            "ip": "127.0.0.1"
+          }
+        ],
+        "restartPolicy": "Always",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "terminationGracePeriodSeconds": 30,
+        "volumes": [
+          {
+            "name": "wordpress-data",
+            "persistentVolumeClaim": {
+              "claimName": "wordpress-wordpress"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "status": {
+    "availableReplicas": 1,
+    "conditions": [
+      {
+        "lastTransitionTime": "2019-01-15T20:09:29Z",
+        "lastUpdateTime": "2019-01-15T20:09:29Z",
+        "message": "Deployment has minimum availability.",
+        "reason": "MinimumReplicasAvailable",
+        "status": "True",
+        "type": "Available"
+      }
+    ],
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "updatedReplicas": 1
+  }
+}
