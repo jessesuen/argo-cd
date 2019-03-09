@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -55,6 +56,7 @@ type Fixture struct {
 	KubeClient              kubernetes.Interface
 	ExtensionsClient        apiextensionsclient.Interface
 	AppClient               appclientset.Interface
+	DynamicClient           dynamic.Interface
 	DB                      db.ArgoDB
 	Namespace               string
 	RepoServerAddress       string
@@ -265,6 +267,10 @@ func NewFixture() (*Fixture, error) {
 	extensionsClient := apiextensionsclient.NewForConfigOrDie(config)
 	appClient := appclientset.NewForConfigOrDie(config)
 	kubeClient := kubernetes.NewForConfigOrDie(config)
+	dclient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
 	namespace, err := createNamespace(kubeClient)
 	if err != nil {
 		return nil, err
@@ -282,6 +288,7 @@ func NewFixture() (*Fixture, error) {
 		Config:           config,
 		ExtensionsClient: extensionsClient,
 		AppClient:        appClient,
+		DynamicClient:    dclient,
 		DB:               db,
 		KubeClient:       kubeClient,
 		Namespace:        namespace,
@@ -322,6 +329,7 @@ func (f *Fixture) createController() (*controller.ApplicationController, error) 
 		f.SettingsMgr,
 		f.KubeClient,
 		f.AppClient,
+		f.DynamicClient,
 		reposerver.NewRepoServerClientset(f.RepoServerAddress),
 		cache.NewCache(cache.NewInMemoryCache(1*time.Hour)),
 		10*time.Second)

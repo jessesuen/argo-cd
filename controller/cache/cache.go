@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/argoproj/argo-cd/controller/listers"
 	appv1 "github.com/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/util"
 	"github.com/argoproj/argo-cd/util/db"
@@ -166,8 +167,10 @@ func (c *liveStateCache) GetManagedLiveObjs(a *appv1.Application, targetObjs []*
 
 func isClusterHasApps(apps []interface{}, cluster *appv1.Cluster) bool {
 	for _, obj := range apps {
-		if app, ok := obj.(*appv1.Application); ok && app.Spec.Destination.Server == cluster.Server {
-			return true
+		if app, err := listers.FromInterface(obj); err == nil {
+			if app.Spec.Destination.Server == cluster.Server {
+				return true
+			}
 		}
 	}
 	return false
@@ -211,7 +214,7 @@ func (c *liveStateCache) Run(ctx context.Context) {
 		}
 
 		onAppModified := func(obj interface{}) {
-			if app, ok := obj.(*appv1.Application); ok {
+			if app, err := listers.FromInterface(obj); err == nil {
 				var cluster *appv1.Cluster
 				info, infoOk := watchingClusters[app.Spec.Destination.Server]
 				if infoOk {
@@ -229,9 +232,9 @@ func (c *liveStateCache) Run(ctx context.Context) {
 		c.appInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc: onAppModified,
 			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldApp, oldOk := oldObj.(*appv1.Application)
-				newApp, newOk := newObj.(*appv1.Application)
-				if oldOk && newOk {
+				oldApp, oldErr := listers.FromInterface(oldObj)
+				newApp, newErr := listers.FromInterface(newObj)
+				if oldErr == nil && newErr == nil {
 					if oldApp.Spec.Destination.Server != newApp.Spec.Destination.Server {
 						onAppModified(oldObj)
 						onAppModified(newApp)

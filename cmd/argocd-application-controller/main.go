@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -61,6 +62,9 @@ func newCommand() *cobra.Command {
 			kubeClient := kubernetes.NewForConfigOrDie(config)
 			appClient := appclientset.NewForConfigOrDie(config)
 
+			dclient, err := dynamic.NewForConfig(config)
+			errors.CheckError(err)
+
 			namespace, _, err := clientConfig.Namespace()
 			errors.CheckError(err)
 
@@ -78,6 +82,7 @@ func newCommand() *cobra.Command {
 				settingsMgr,
 				kubeClient,
 				appClient,
+				dclient,
 				repoClientset,
 				cache,
 				resyncDuration)

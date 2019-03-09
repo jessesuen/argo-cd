@@ -10,9 +10,8 @@ import (
 	"sync"
 	"time"
 
+	unstructuredutil "github.com/argoproj/pkg/kube/unstructured"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,17 +19,18 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
 	"github.com/argoproj/argo-cd/common"
 	statecache "github.com/argoproj/argo-cd/controller/cache"
+	"github.com/argoproj/argo-cd/controller/listers"
 	"github.com/argoproj/argo-cd/controller/metrics"
 	"github.com/argoproj/argo-cd/errors"
 	appv1 "github.com/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 	appclientset "github.com/argoproj/argo-cd/pkg/client/clientset/versioned"
-	appinformers "github.com/argoproj/argo-cd/pkg/client/informers/externalversions"
 	"github.com/argoproj/argo-cd/pkg/client/informers/externalversions/application/v1alpha1"
 	applisters "github.com/argoproj/argo-cd/pkg/client/listers/application/v1alpha1"
 	"github.com/argoproj/argo-cd/reposerver"
@@ -64,6 +64,7 @@ type ApplicationController struct {
 	stateCache                statecache.LiveStateCache
 	statusRefreshTimeout      time.Duration
 	repoClientset             reposerver.Clientset
+	dclient                   dynamic.Interface
 	db                        db.ArgoDB
 	settings                  *settings_util.ArgoCDSettings
 	settingsMgr               *settings_util.SettingsManager
@@ -83,6 +84,7 @@ func NewApplicationController(
 	settingsMgr *settings_util.SettingsManager,
 	kubeClientset kubernetes.Interface,
 	applicationClientset appclientset.Interface,
+	dclient dynamic.Interface,
 	repoClientset reposerver.Clientset,
 	argoCache *argocache.Cache,
 	appResyncPeriod time.Duration,
@@ -99,6 +101,7 @@ func NewApplicationController(
 		kubeClientset:             kubeClientset,
 		kubectl:                   kubectlCmd,
 		applicationClientset:      applicationClientset,
+		dclient:                   dclient,
 		repoClientset:             repoClientset,
 		appRefreshQueue:           workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 		appOperationQueue:         workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
@@ -125,21 +128,6 @@ func NewApplicationController(
 	metricsAddr := fmt.Sprintf("0.0.0.0:%d", common.PortArgoCDMetrics)
 	ctrl.metricsServer = metrics.NewMetricsServer(metricsAddr, ctrl.appLister)
 	return &ctrl, nil
-}
-
-func (ctrl *ApplicationController) getApp(name string) (*appv1.Application, error) {
-	obj, exists, err := ctrl.appInformer.GetStore().GetByKey(fmt.Sprintf("%s/%s", ctrl.namespace, name))
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("unable to find application with name %s", name))
-	}
-	a, ok := (obj).(*appv1.Application)
-	if !ok {
-		return nil, status.Errorf(codes.Internal, fmt.Sprintf("unexpected object type in app informer"))
-	}
-	return a, nil
 }
 
 func (ctrl *ApplicationController) setAppManagedResources(a *appv1.Application, comparisonResult *comparisonResult) error {
@@ -299,24 +287,14 @@ func (ctrl *ApplicationController) processAppOperationQueueItem() (processNext b
 		ctrl.appOperationQueue.Done(appKey)
 	}()
 
-	obj, exists, err := ctrl.appInformer.GetIndexer().GetByKey(appKey.(string))
-	if err != nil {
-		log.Errorf("Failed to get application '%s' from informer index: %+v", appKey, err)
-		return
-	}
-	if !exists {
-		// This happens after app was deleted, but the work queue still had an entry for it.
-		return
-	}
-	app, ok := obj.(*appv1.Application)
+	app, ok := ctrl.getAppByKey(appKey.(string))
 	if !ok {
-		log.Warnf("Key '%s' in index is not an application", appKey)
 		return
 	}
 	if app.Operation != nil {
 		ctrl.processRequestedAppOperation(app)
 	} else if app.DeletionTimestamp != nil && app.CascadedDeletion() {
-		err = ctrl.finalizeApplicationDeletion(app)
+		err := ctrl.finalizeApplicationDeletion(app)
 		if err != nil {
 			ctrl.setAppCondition(app, appv1.ApplicationCondition{
 				Type:    appv1.ApplicationConditionDeletionError,
@@ -327,6 +305,40 @@ func (ctrl *ApplicationController) processAppOperationQueueItem() (processNext b
 		}
 	}
 	return
+}
+
+// getAppByKey returns an application off the informer by the given key name. The informer
+// may be an application informer or an unstructured informer. If an unstructured object is pulled
+// off the informer, and cannot be unmarshalled properly to an app, will persist the app with
+// the invalid data removed.
+func (ctrl *ApplicationController) getAppByKey(appKey string) (*appv1.Application, bool) {
+	objIf, exists, err := ctrl.appInformer.GetIndexer().GetByKey(appKey)
+	if err != nil {
+		log.Errorf("Failed to get application '%s' from informer index: %+v", appKey, err)
+		return nil, false
+	}
+	if !exists {
+		// This happens after app was deleted, but the work queue still had an entry for it.
+		return nil, false
+	}
+	var app *appv1.Application
+	switch obj := objIf.(type) {
+	case *unstructured.Unstructured:
+		app, err = listers.FromUnstructured(obj)
+		if err != nil {
+			if app != nil {
+				log.Warnf("Key '%s' in index is not a valid application. Discarding invalid fields", appKey)
+				_, err = ctrl.applicationClientset.ArgoprojV1alpha1().Applications(ctrl.namespace).Update(app)
+				if err != nil {
+					log.Warnf("Failed to correct app key: %s: %v", appKey, err)
+				}
+			}
+			return nil, false
+		}
+	case *appv1.Application:
+		app = obj
+	}
+	return app, true
 }
 
 func (ctrl *ApplicationController) finalizeApplicationDeletion(app *appv1.Application) error {
@@ -552,22 +564,12 @@ func (ctrl *ApplicationController) processAppRefreshQueueItem() (processNext boo
 		ctrl.appRefreshQueue.Done(appKey)
 	}()
 
-	obj, exists, err := ctrl.appInformer.GetIndexer().GetByKey(appKey.(string))
-	if err != nil {
-		log.Errorf("Failed to get application '%s' from informer index: %+v", appKey, err)
-		return
-	}
-	if !exists {
-		// This happens after app was deleted, but the work queue still had an entry for it.
-		return
-	}
-	origApp, ok := obj.(*appv1.Application)
+	origApp, ok := ctrl.getAppByKey(appKey.(string))
 	if !ok {
-		log.Warnf("Key '%s' in index is not an application", appKey)
 		return
 	}
-	needRefresh, refreshType := ctrl.needRefreshAppStatus(origApp, ctrl.statusRefreshTimeout)
 
+	needRefresh, refreshType := ctrl.needRefreshAppStatus(origApp, ctrl.statusRefreshTimeout)
 	if !needRefresh {
 		return
 	}
@@ -831,14 +833,13 @@ func alreadyAttemptedSync(app *appv1.Application, commitSHA string) bool {
 }
 
 func (ctrl *ApplicationController) newApplicationInformerAndLister() (cache.SharedIndexInformer, applisters.ApplicationLister) {
-	appInformerFactory := appinformers.NewFilteredSharedInformerFactory(
-		ctrl.applicationClientset,
-		ctrl.statusRefreshTimeout,
+	informer := unstructuredutil.NewUnstructuredInformer(
+		appv1.SchemeGroupVersion.WithResource("applications"),
+		ctrl.dclient,
 		ctrl.namespace,
-		func(options *metav1.ListOptions) {},
+		ctrl.statusRefreshTimeout,
+		cache.Indexers{},
 	)
-	informer := appInformerFactory.Argoproj().V1alpha1().Applications().Informer()
-	lister := appInformerFactory.Argoproj().V1alpha1().Applications().Lister()
 	informer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
@@ -853,14 +854,7 @@ func (ctrl *ApplicationController) newApplicationInformerAndLister() (cache.Shar
 				if err != nil {
 					return
 				}
-				oldApp, oldOK := old.(*appv1.Application)
-				newApp, newOK := new.(*appv1.Application)
-				if oldOK && newOK {
-					if toggledAutomatedSync(oldApp, newApp) {
-						log.WithField("application", newApp.Name).Info("Enabled automated sync")
-						ctrl.requestAppRefresh(newApp.Name)
-					}
-				}
+				ctrl.checkToggledAutomatedSync(old, new)
 				ctrl.appRefreshQueue.Add(key)
 				ctrl.appOperationQueue.Add(key)
 			},
@@ -874,6 +868,7 @@ func (ctrl *ApplicationController) newApplicationInformerAndLister() (cache.Shar
 			},
 		},
 	)
+	lister := listers.NewApplicationLister(informer)
 	return informer, lister
 }
 
@@ -881,14 +876,29 @@ func isOperationInProgress(app *appv1.Application) bool {
 	return app.Status.OperationState != nil && !app.Status.OperationState.Phase.Completed()
 }
 
-// toggledAutomatedSync tests if an app went from auto-sync disabled to enabled.
+// checkToggledAutomatedSync tests if an app went from auto-sync disabled to enabled.
 // if it was toggled to be enabled, the informer handler will force a refresh
-func toggledAutomatedSync(old *appv1.Application, new *appv1.Application) bool {
-	if new.Spec.SyncPolicy == nil || new.Spec.SyncPolicy.Automated == nil {
+func (ctrl *ApplicationController) checkToggledAutomatedSync(old interface{}, new interface{}) bool {
+	toApplication := func(obj interface{}) (*appv1.Application, bool) {
+		un, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			return nil, false
+		}
+		app, err := listers.FromUnstructured(un)
+		return app, err == nil
+	}
+	oldApp, oldOK := toApplication(old)
+	newApp, newOK := toApplication(new)
+	if !oldOK || !newOK {
+		return false
+	}
+	if newApp.Spec.SyncPolicy == nil || newApp.Spec.SyncPolicy.Automated == nil {
 		return false
 	}
 	// auto-sync is enabled. check if it was previously disabled
-	if old.Spec.SyncPolicy == nil || old.Spec.SyncPolicy.Automated == nil {
+	if oldApp.Spec.SyncPolicy == nil || oldApp.Spec.SyncPolicy.Automated == nil {
+		log.WithField("application", newApp.Name).Info("Enabled automated sync")
+		ctrl.requestAppRefresh(newApp.Name)
 		return true
 	}
 	// nothing changed

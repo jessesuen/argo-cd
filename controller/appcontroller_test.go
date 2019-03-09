@@ -12,11 +12,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	fakedyn "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	kubetesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
 	mockstatecache "github.com/argoproj/argo-cd/controller/cache/mocks"
+	"github.com/argoproj/argo-cd/controller/listers"
 	argoappv1 "github.com/argoproj/argo-cd/pkg/apis/application/v1alpha1"
 	appclientset "github.com/argoproj/argo-cd/pkg/client/clientset/versioned/fake"
 	mockreposerver "github.com/argoproj/argo-cd/reposerver/mocks"
@@ -66,11 +68,30 @@ func newFakeController(data *fakeData) *ApplicationController {
 	}
 	kubeClient := fake.NewSimpleClientset(&clust, &cm, &secret)
 	settingsMgr := settings.NewSettingsManager(context.Background(), kubeClient, test.FakeArgoCDNamespace)
+
+	// Since we use both unstructured app informer as well as the application interface, we need to
+	// mirror the fake application data into the unstructured informer backed by the fake dynamic client
+	scheme := runtime.NewScheme()
+	argoappv1.AddToScheme(scheme)
+	var unstructuredApps []runtime.Object
+	for _, app := range data.apps {
+		switch obj := app.(type) {
+		case *argoappv1.Application:
+			un, err := listers.ToUnstructured(obj)
+			if err != nil {
+				panic(err)
+			}
+			unstructuredApps = append(unstructuredApps, un)
+		}
+	}
+	fakeDynClient := fakedyn.NewSimpleDynamicClient(scheme, unstructuredApps...)
+
 	ctrl, err := NewApplicationController(
 		test.FakeArgoCDNamespace,
 		settingsMgr,
 		kubeClient,
 		appclientset.NewSimpleClientset(data.apps...),
+		fakeDynClient,
 		&mockRepoClientset,
 		utilcache.NewCache(utilcache.NewInMemoryCache(1*time.Hour)),
 		time.Minute,
@@ -442,3 +463,56 @@ func TestNormalizeApplication(t *testing.T) {
 		assert.False(t, normalized)
 	}
 }
+
+const badAppYAML = `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: guestbook
+  namespace: ` + test.FakeArgoCDNamespace + `
+spec:
+  project: default
+  source:
+  - repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: guestbook
+`
+
+// TestMalformedApplication verifies a bad application will not bring down the controller
+// func TestMalformedApplication(t *testing.T) {
+// 	var badApp unstructured.Unstructured
+
+// 	err := yaml.Unmarshal([]byte(badAppYAML), &badApp)
+// 	assert.NoError(t, err)
+
+// 	data := fakeData{
+// 		apps: []runtime.Object{&badApp},
+// 	}
+// 	fakeDclient := ctrl.dclient.(*fakedyn.FakeDynamicClient)
+// 	fakeDclient.
+// 	{
+// 		// Verify we do not crash the controller with an malformed application object
+// 		ctrl := newFakeController(&data)
+
+// 		key, _ := cache.MetaNamespaceKeyFunc(badApp)
+// 		ctrl.appRefreshQueue.Add(key)
+// 		// fakeAppCs := ctrl.applicationClientset.(*appclientset.Clientset)
+// 		// fakeAppCs.ReactionChain = nil
+// 		// normalized := false
+// 		// fakeAppCs.AddReactor("patch", "*", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+// 		// 	if patchAction, ok := action.(kubetesting.PatchAction); ok {
+// 		// 		if string(patchAction.GetPatch()) == `{"spec":{"project":"default"}}` {
+// 		// 			normalized = true
+// 		// 		}
+// 		// 	}
+// 		// 	return true, nil, nil
+// 		// })
+// 		ctrl.processAppRefreshQueueItem()
+// 		app, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(ctrl.namespace).Get(badApp.GetName(), metav1.GetOptions{})
+// 		assert.NoError(t, err)
+// 		assert.Equal(t, "guestbook", app.Spec.Destination.Namespace)
+// 	}
+// }
