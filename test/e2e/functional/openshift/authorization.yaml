@@ -1,0 +1,11 @@
+apiVersion: authorization.openshift.io/v1
+kind: Role
+metadata:
+  name: openshift-test-auth
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
