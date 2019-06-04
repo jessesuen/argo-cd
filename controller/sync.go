@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
@@ -118,6 +119,7 @@ func (m *appStateManager) SyncAppState(app *appv1.Application, state *appv1.Oper
 	}
 
 	restConfig := metrics.AddMetricsTransportWrapper(m.metricsServer, app, clst.RESTConfig())
+	restConfig.Timeout = 2 * time.Minute
 	dynamicIf, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
 		state.Phase = appv1.OperationError
@@ -281,7 +283,7 @@ func (sc *syncContext) generateSyncTasks() ([]syncTask, bool) {
 							Version:   gvk.Version,
 							Kind:      targetObj.GetKind(),
 							Namespace: targetObj.GetNamespace(),
-							Message:   err.Error(),
+							Message:   fmt.Sprintf("Failed to perform resource discovery on %s: %s.", gvk, err.Error()),
 							Status:    appv1.ResultCodeSyncFailed,
 						})
 						successful = false
