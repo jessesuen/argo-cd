@@ -9,3 +9,5 @@ redis-ha:
     enabled: true
   image:
     tag: 5.0.8-alpine
+  exporter:
+    enabled: true
