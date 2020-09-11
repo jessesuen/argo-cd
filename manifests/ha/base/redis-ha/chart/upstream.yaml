@@ -359,6 +359,10 @@ spec:
     port: 26379
     protocol: TCP
     targetPort: sentinel
+  - name: exporter
+    port: 9121
+    protocol: TCP
+    targetPort: exporter-port
   selector:
     release: argocd
     app: redis-ha
@@ -388,6 +392,10 @@ spec:
     port: 26379
     protocol: TCP
     targetPort: sentinel
+  - name: exporter
+    port: 9121
+    protocol: TCP
+    targetPort: exporter-port
   selector:
     release: argocd
     app: redis-ha
@@ -417,6 +425,10 @@ spec:
     port: 26379
     protocol: TCP
     targetPort: sentinel
+  - name: exporter
+    port: 9121
+    protocol: TCP
+    targetPort: exporter-port
   selector:
     release: argocd
     app: redis-ha
@@ -447,6 +459,10 @@ spec:
     port: 26379
     protocol: TCP
     targetPort: sentinel
+  - name: exporter-port
+    port: 9121
+    protocol: TCP
+    targetPort: exporter-port
   selector:
     release: argocd
     app: redis-ha
@@ -616,6 +632,9 @@ spec:
     metadata:
       annotations:
         checksum/init-config: 552ee3bec8fe5d9d865e371f7b615c6d472253649eb65d53ed4ae874f782647c
+        prometheus.io/port: "9121"
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
       labels:
         release: argocd
         app: redis-ha
@@ -713,6 +732,26 @@ spec:
         volumeMounts:
         - mountPath: /data
           name: data
+      - name: redis-exporter
+        image: "oliver006/redis_exporter:v1.3.2"
+        imagePullPolicy: IfNotPresent
+        args:
+        env:
+          - name: REDIS_ADDR
+            value: redis://localhost:6379
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9121
+          initialDelaySeconds: 15
+          timeoutSeconds: 1
+          periodSeconds: 15
+        resources:
+          {}
+          
+        ports:
+          - name: exporter-port
+            containerPort: 9121
       volumes:
       - name: config
         configMap:
