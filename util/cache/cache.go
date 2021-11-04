@@ -74,6 +74,7 @@ func AddCacheFlagsToCmd(cmd *cobra.Command, opts ...func(client *redis.Client)) 
 	sentinelAddresses := make([]string, 0)
 	sentinelMaster := ""
 	redisDB := 0
+	redisSNI := ""
 	redisCACerticate := ""
 	redisClientCertificate := ""
 	redisClientKey := ""
@@ -87,6 +88,7 @@ func AddCacheFlagsToCmd(cmd *cobra.Command, opts ...func(client *redis.Client)) 
 	cmd.Flags().StringVar(&sentinelMaster, "sentinelmaster", "master", "Redis sentinel master group name.")
 	cmd.Flags().DurationVar(&defaultCacheExpiration, "default-cache-expiration", env.ParseDurationFromEnv("ARGOCD_DEFAULT_CACHE_EXPIRATION", 24*time.Hour, 0, math.MaxInt64), "Cache expiration default")
 	cmd.Flags().BoolVar(&redisUseTLS, "redis-use-tls", false, "Use TLS when connecting to Redis. ")
+	cmd.Flags().StringVar(&redisSNI, "redis-sni", "", "Redis server name indication for TLS.")
 	cmd.Flags().StringVar(&redisClientCertificate, "redis-client-certificate", "", "Path to Redis client certificate (e.g. /etc/certs/redis/client.crt).")
 	cmd.Flags().StringVar(&redisClientKey, "redis-client-key", "", "Path to Redis client key (e.g. /etc/certs/redis/client.crt).")
 	cmd.Flags().BoolVar(&insecureRedis, "redis-insecure-skip-tls-verify", false, "Skip Redis server certificate validation.")
@@ -117,6 +119,7 @@ func AddCacheFlagsToCmd(cmd *cobra.Command, opts ...func(client *redis.Client)) 
 					return nil, err
 				}
 			}
+			tlsConfig.ServerName = redisSNI
 		}
 		password := os.Getenv(envRedisPassword)
 		maxRetries := env.ParseNumFromEnv(envRedisRetryCount, defaultRedisRetryCount, 0, math.MaxInt32)
