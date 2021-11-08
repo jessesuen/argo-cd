@@ -1,10 +1,12 @@
 package oidc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
 	"html/template"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -308,6 +310,22 @@ func (a *ClientApp) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("invalid session token: %v", err), http.StatusInternalServerError)
 		return
 	}
+	var claims jwt.MapClaims
+	err = idToken.Claims(&claims)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	claimsJSON, _ := json.Marshal(claims)
+	_, err = a.FetchDistributedClaims(r.Context(), idToken, token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("%s\n%s", claimsJSON, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	// TODO: now that we have the distributed claims, need to figure out a storage strategy
+	// (e.g. appended to existing cookie, redis, etc...)
+
+	// Set cookie
 	path := "/"
 	if a.baseHRef != "" {
 		path = strings.TrimRight(strings.TrimLeft(a.baseHRef, "/"), "/")
@@ -316,12 +334,7 @@ func (a *ClientApp) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	flags := []string{cookiePath, "SameSite=lax", "httpOnly"}
 	if a.secureCookie {
 		flags = append(flags, "Secure")
-	}
-	var claims jwt.MapClaims
-	err = idToken.Claims(&claims)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
 	}
 	if idTokenRAW != "" {
 		cookies, err := httputil.MakeCookieMetadata(common.AuthCookieName, idTokenRAW, flags...)
@@ -336,7 +349,6 @@ func (a *ClientApp) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	claimsJSON, _ := json.Marshal(claims)
 	log.Infof("Web login successful. Claims: %s", claimsJSON)
 	if os.Getenv(common.EnvVarSSODebug) == "1" {
 		claimsJSON, _ := json.MarshalIndent(claims, "", "  ")
@@ -451,4 +463,125 @@ func createClaimsAuthenticationRequestParameter(requestedClaims map[string]*oidc
 		return nil, err
 	}
 	return oauth2.SetAuthURLParam("claims", string(claimsRequestRAW)), nil
+}
+
+// DistributedClaims is the object representation of OIDC distributed claims. e.g.:
+// {
+//   "_claim_names": {
+//	   "address": "src1",
+//	   "phone_number": "src1"
+//   }
+// 	 "_claim_sources": {
+// 	   "src1": {
+// 	     "endpoint": "https://bank.example.com/claim_source"
+//     },
+// 	   "src2": {
+//       "endpoint": "https://creditagency.example.com/claims_here",
+//       "access_token": "ksj3n283dke"
+//     },
+//   }
+// }
+type DistributedClaims struct {
+	ClaimNames   map[string]string      `json:"_claim_names,omitempty"`
+	ClaimSources map[string]ClaimSource `json:"_claim_sources,omitempty"`
+}
+
+type ClaimSource struct {
+	// Endpoint URL to use to request the distributed claim.  This URL is expected to be
+	// prefixed by one of the known issuer URLs.
+	Endpoint string `json:"endpoint,omitempty"`
+	// AccessToken is the bearer token to use for access.  If empty, it is
+	// not used.  Access token is optional per the OIDC distributed claims
+	// specification.
+	// See: http://openid.net/specs/openid-connect-core-1_0.html#DistributedExample
+	AccessToken string `json:"access_token,omitempty"`
+}
+
+// FetchDistributedClaims performs the additional HTTP requests to retrieve distributed claims
+func (a *ClientApp) FetchDistributedClaims(ctx context.Context, idToken *gooidc.IDToken, token *oauth2.Token) (map[string]jwt.MapClaims, error) {
+	var distClaimsSources DistributedClaims
+	err := idToken.Claims(&distClaimsSources)
+	if err != nil {
+		return nil, err
+	}
+
+	distClaims := make(map[string]jwt.MapClaims)
+	for claimName, srcName := range distClaimsSources.ClaimNames {
+		source := distClaimsSources.ClaimSources[srcName]
+		req, err := newDistributedClaimsRequest(source, token)
+		if err != nil {
+			return nil, err
+		}
+		req = req.WithContext(ctx)
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		respBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read distributed claim response: %v", err)
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, fmt.Errorf("failed to fetch distributed claim %s JWT from '%s' (status: %v, body: %s)", claimName, req.URL, resp.Status, string(respBytes))
+		}
+		// TODO: validate the claim. Response should be a JWT in the case of Azure, it is plain JSON
+		distClaims[claimName] = jwt.MapClaims{}
+		log.Info(string(respBytes))
+	}
+	return distClaims, nil
+}
+
+const (
+	// Legacy (Deprecated) ADAL and Azure AD Graph API. Used to detect and upgrade to newer Microsoft Graph API endpoint
+	legacyAzureADGraphHost = "graph.windows.net"
+	// The host and version of the Microsoft Graph API
+	microsoftGraphHost       = "graph.microsoft.com"
+	microsoftGraphAPIVersion = "/v1.0"
+)
+
+// newDistributedClaimsRequest returns an HTTP request to perform a distributed claims request
+func newDistributedClaimsRequest(source ClaimSource, token *oauth2.Token) (*http.Request, error) {
+	parsedURL, err := url.Parse(source.Endpoint)
+	if err != nil {
+		return nil, err
+	}
+	// As of 11/2021, claims endpoint returned by Azure still references the deprecated
+	// Azure Graph API (graph.windows.net). This transparently switches the request to use the
+	// Microsoft Graph API v1.0 Graph API.
+	// * https://docs.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0
+	if parsedURL.Host == legacyAzureADGraphHost {
+		parsedURL.Host = microsoftGraphHost
+		parsedURL.Path = microsoftGraphAPIVersion + parsedURL.Path
+	}
+
+	var req *http.Request
+	if parsedURL.Host == microsoftGraphHost {
+		// Microsoft Graph API is not compliant OIDC. To fetch their version of "distributed claims"
+		// it requires a POST on the endpoint with securityEnabledOnly payload.
+		// * https://github.com/kubernetes/kubernetes/issues/62920
+		// * https://github.com/oauth2-proxy/oauth2-proxy/issues/1231
+		// * https://docs.microsoft.com/en-us/azure/active-directory/azuread-dev/azure-ad-endpoint-comparison
+		req, err = http.NewRequest("POST", parsedURL.String(), strings.NewReader(`{"securityEnabledOnly": false}`))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Add("content-type", "application/json")
+	} else {
+		req, err = http.NewRequest("GET", parsedURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Use the specified access_token if returned. Otherwise use pre-negotiated token.
+	if source.AccessToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %v", source.AccessToken))
+	} else {
+		// https://openid.net/specs/openid-connect-core-1_0.html#AggregatedDistributedClaims
+		// If the Access Token is not available, RPs MAY need to retrieve the Access Token out of band
+		// or use an Access Token that was pre-negotiated between the Claims Provider and RP,
+		// or the Claims Provider MAY reauthenticate the End-User and/or reauthorize the RP.
+		token.SetAuthHeader(req)
+	}
+	return req, nil
 }
